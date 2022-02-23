@@ -5,6 +5,7 @@ redis command time consumption calculator
 from scapy.all import *
 from collections import deque
 from threading import Thread
+from multiprocessing import Process
 
 from scapy.layers.inet import TCP, IP
 
@@ -69,7 +70,7 @@ def output(path='.', size=1, s3path=None):
 
     def gen_filename(parent: str):
         hostname = socket.gethostname()
-        filename = parent + '/' + hostname + '_' + str(os.getpid()) + str(time.time()).replace('.', '') + '.csv'
+        filename = parent + '/' + hostname + '_' + str(os.getpid()) + '_' + str(time.time()).replace('.', '') + '.csv'
         return filename
 
     filename = gen_filename(path)
@@ -172,17 +173,19 @@ def tcp_flow_handler(pkt: Packet) -> None:
 
 
 def worker() -> None:
+    global g_parameters
+
     previous = time.time()
     while True:
         now = time.time()
         if now - previous >= 5:  # report statistics every 5 seconds.
-            debug_flag = True if g_parameters['debug'] is True else False
+            debug_flag = g_parameters['debug']
             report_statistics(debug=debug_flag)
             previous = now
 
         size = len(g_queue)
         if size == 0:
-            time.sleep(0.01)
+            time.sleep(0.001)
             continue
 
         packet = g_queue.popleft()
@@ -241,6 +244,10 @@ def parse_command():
     g_parameters['s3path'] = args.s3path
 
 
+def producer(filter: str):
+    pass
+
+
 def main():
     global g_parameters
     global g_write
@@ -256,19 +263,21 @@ def main():
     start = time.time()
     print(f'time start: {time.ctime()}')
 
+    # producer(g_parameters['filter'] + ' and port 6379')
+
     thread = Thread(target=worker)
     thread.start()
 
     if g_parameters['input_file'] is not None:
         sniff(offline=g_parameters['input_file'],
-              filter=g_parameters['filter'],
+              filter=g_parameters['filter'] + ' and port 6379',
               session=TCPSession,
               # count=5000,
               store=False,
               prn=distribute)
     else:
         sniff(iface='eth0',
-              filter=g_parameters['filter'],
+              filter=g_parameters['filter'] + ' and port 6379',
               session=TCPSession,
               # count=5000,
               store=False,
@@ -277,7 +286,6 @@ def main():
     thread.join()
 
     end = time.time() - start
-
     print(f'time now and cost: {time.time()} {end}')
 
 
