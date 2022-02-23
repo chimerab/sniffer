@@ -69,7 +69,7 @@ def output(path='.', size=1, s3path=None):
 
     def gen_filename(parent: str):
         hostname = socket.gethostname()
-        filename = parent + '/' + hostname + '_' + str(time.time()).replace('.', '') + '.csv'
+        filename = parent + '/' + hostname + '_' + str(os.getpid()) + str(time.time()).replace('.', '') + '.csv'
         return filename
 
     filename = gen_filename(path)
