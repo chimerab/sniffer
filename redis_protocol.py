@@ -33,7 +33,7 @@ def decode(data):
         return None, None
     
     # redis command ends with 'r\n'
-    if data.endswith(DELIMITER) == False:
+    if data.endswith(DELIMITER) is False:
         return None, None
 
     # use range to get bytes, or you will get an int
