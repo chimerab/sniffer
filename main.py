@@ -176,11 +176,17 @@ def worker() -> None:
     global g_parameters
 
     previous = time.time()
+    previous_pkt_count = g_packet_add_count
     while True:
         now = time.time()
         if now - previous >= 5:  # report statistics every 5 seconds.
             debug_flag = g_parameters['debug']
             report_statistics(debug=debug_flag)
+            if previous_pkt_count == g_packet_add_count:
+                print('no packets been added to work queue. finish work.')
+                logger.info('no packets been added to work queue. finish work.')
+                break
+            previous_pkt_count = g_packet_add_count
             previous = now
 
         size = len(g_queue)
