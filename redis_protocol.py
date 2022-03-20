@@ -27,8 +27,13 @@ def decode(data):
     if len(data) == 0:
         return None, None
 
+    # unable to find '\r\n'
     processed, index = 0, data.find(DELIMITER)
     if index == -1:
+        return None, None
+    
+    # redis command ends with 'r\n'
+    if data.endswith(DELIMITER) == False:
         return None, None
 
     # use range to get bytes, or you will get an int
@@ -56,6 +61,10 @@ def parse_multi_chunked(data):
         return '0', start
     elif count == -1:  # b'*-1\r\n'
         return '-1', start
+
+    # since each element with endswith 'r\n' so we at least should find "count" of '\r\n'
+    if data[start:].count(DELIMITER) < count:
+        return None, None
 
     for i in range(count):
         chunk, length = decode(data[start:])
