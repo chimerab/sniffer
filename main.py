@@ -183,7 +183,7 @@ def worker() -> None:
             debug_flag = g_parameters['debug']
             report_statistics(debug=debug_flag)
             if previous_pkt_count == g_packet_add_count:
-                print('no packets been added to work queue. finish work.')
+                print('\nno packets been added to work queue. finish work.')
                 logger.info('no packets been added to work queue. finish work.')
                 break
             previous_pkt_count = g_packet_add_count
