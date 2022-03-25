@@ -108,7 +108,7 @@ class Worker(Thread):
         self._packet_remove_count = 0
         self._packet_add_count = 0
 
-    def __init(self, parameters):
+    def __init__(self, parameters):
         super().__init__()
         self._running_flag = True
         self._flow = {}
