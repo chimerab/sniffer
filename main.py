@@ -204,6 +204,7 @@ class Worker(Thread):
                     break
 
                 previous = now
+                previous_pkt_count = g_packet_add_count
 
             size = len(g_queue)
             if size == 0:
