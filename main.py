@@ -102,12 +102,14 @@ def output(path='.', size=1, s3path=None):
 class Worker(Thread):
 
     def __init__(self):
+        super().__init__()
         self._running_flag = True
         self._flow = {}
         self._packet_remove_count = 0
         self._packet_add_count = 0
 
     def __init(self, parameters):
+        super().__init__()
         self._running_flag = True
         self._flow = {}
         self._packet_remove_count = 0
@@ -280,7 +282,7 @@ def main():
     start = time.time()
     print(f'time start: {time.ctime()}')
 
-    thread = Worker()
+    thread = Worker(parameters)
     thread.start()
 
     if parameters['input_file'] is not None:
