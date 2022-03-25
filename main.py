@@ -187,12 +187,16 @@ class Worker(Thread):
         previous = time.time()
         previous_pkt_count = g_packet_add_count
 
-        while self._running_flag:
+        while True:
             now = time.time()
             if now - previous >= 5:  # report statistics every 5 seconds.
                 debug_flag = self.parameters['debug']
                 self.report_statistics(debug=debug_flag)
-                if previous_pkt_count == g_packet_add_count:
+
+                # check every 5 seconds if no processed packet and running flag is false.
+                if previous_pkt_count == g_packet_add_count \
+                        and len(g_queue) == 0 \
+                        and self._running_flag is False:
                     print('\nno packets been added to work queue. finish work.')
                     logger.info('no packets been added to work queue. finish work.')
                     break
