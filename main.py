@@ -167,6 +167,8 @@ class Worker(Thread):
                     entry = [str(packet_list[i].time),
                              str(packet_list[i][IP].src),
                              str(packet_list[i][TCP].sport),
+                             str(packet_list[i][IP].dst),
+                             # str(packet_list[i][TCP].dport),
                              packet_list[i].OP.decode(),
                              packet_list[i].OBJ.decode().replace('\r', ' ').replace('\n', ' '),
                              str(len(packet_list[i][TCP].payload)),
