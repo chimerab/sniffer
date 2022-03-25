@@ -302,6 +302,7 @@ def main():
               prn=distribute)
 
     thread.stop()
+    thread.join()
 
     end = time.time() - start
     print(f'time now and cost: {time.time()} {end}')
