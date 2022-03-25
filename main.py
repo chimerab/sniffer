@@ -5,7 +5,6 @@ redis command time consumption calculator
 from scapy.all import *
 from collections import deque
 from threading import Thread
-from multiprocessing import Process
 
 from scapy.layers.inet import TCP, IP
 
@@ -29,12 +28,8 @@ logging.basicConfig(level=logging.INFO,
 
 # 1M packet 'normally' will take 500M - 1G memory
 g_queue = deque(maxlen=1000000)
-g_flow = {}
-g_packet_remove_count = 0
-g_packet_add_count = 0
-g_parameters = {}
 g_write = None
-
+g_packet_add_count = 0
 
 def output(path='.', size=1, s3path=None):
     client = None
@@ -104,130 +99,144 @@ def output(path='.', size=1, s3path=None):
     return save
 
 
-def handler(pkt: Packet) -> None:
-    global g_packet_remove_count
+class Worker(Thread):
 
-    tcplayer = pkt.getlayer('TCP')
-    if tcplayer is not None:
-        tcp_flow_handler(pkt)
-    else:
-        logger.info('not a tcp packet. drop it')
+    def __init__(self):
+        self._running_flag = True
+        self._flow = {}
+        self._packet_remove_count = 0
+        self._packet_add_count = 0
 
-    g_packet_remove_count += 1
-    logger.debug(f'---packet been handled from the queue: {g_packet_remove_count}')
+    def __init(self, parameters):
+        self._running_flag = True
+        self._flow = {}
+        self._packet_remove_count = 0
+        self._packet_add_count = 0
+        self.parameters = parameters
 
+    def stop(self):
+        self._running_flag = False
 
-def tcp_flow_handler(pkt: Packet) -> None:
-    global g_write
+    def handler(self, pkt: Packet) -> None:
 
-    snd_fmt = ('TCP {IP:%IP.src%}{IPv6:%IPv6.src%}:%r,TCP.sport% > ' +
-               '{IP:%IP.dst%}{IPv6:%IPv6.dst%}:%r,TCP.dport%')
-    rcv_fmt = ('TCP {IP:%IP.dst%}{IPv6:%IPv6.dst%}:%r,TCP.dport% > ' +
-               '{IP:%IP.src%}{IPv6:%IPv6.src%}:%r,TCP.sport%')
+        tcplayer = pkt.getlayer('TCP')
+        if tcplayer is not None:
+            self.tcp_flow_handler(pkt)
+        else:
+            logger.info('not a tcp packet. drop it')
 
-    if len(pkt[TCP].payload) == 0:
-        logger.info('empty ack packet. drop it.')
+        self._packet_remove_count += 1
+        logger.debug(f'---packet been handled from the queue: {self._packet_remove_count}')
+
+    def tcp_flow_handler(self, pkt: Packet) -> None:
+        global g_write
+
+        snd_fmt = ('TCP {IP:%IP.src%}{IPv6:%IPv6.src%}:%r,TCP.sport% > ' +
+                   '{IP:%IP.dst%}{IPv6:%IPv6.dst%}:%r,TCP.dport%')
+        rcv_fmt = ('TCP {IP:%IP.dst%}{IPv6:%IPv6.dst%}:%r,TCP.dport% > ' +
+                   '{IP:%IP.src%}{IPv6:%IPv6.src%}:%r,TCP.sport%')
+
+        if len(pkt[TCP].payload) == 0:
+            logger.info('empty ack packet. drop it.')
+            logger.debug(pkt[IP].summary)
+            return
+
+        # current 4 tuple tcp flow
+        snd_flow_key = pkt.sprintf(snd_fmt)
+        rcv_flow_key = pkt.sprintf(rcv_fmt)
+
         logger.debug(pkt[IP].summary)
-        return
+        # we need check bi-direction packet match
 
-    # current 4 tuple tcp flow
-    snd_flow_key = pkt.sprintf(snd_fmt)
-    rcv_flow_key = pkt.sprintf(rcv_fmt)
+        if rcv_flow_key in self._flow:
+            packet_list = self._flow.get(rcv_flow_key)
+        elif snd_flow_key in self._flow:
+            packet_list = self._flow.get(snd_flow_key)
+        else:
+            logger.debug(f'new flow found: {snd_flow_key}')
+            self._flow[snd_flow_key] = [pkt]
+            return
 
-    logger.debug(pkt[IP].summary)
-    # we need check bi-direction packet match
+        if pkt[TCP].sport == 6379:
+            logger.debug('packet sport 6379, treat as RSP')
+            for i in range(len(packet_list) - 1, -1, -1):
+                if packet_list[i][TCP].sport != 6379:
+                    time_used = pkt.time - packet_list[i].time
+                    entry = [str(packet_list[i].time),
+                             str(packet_list[i][IP].src),
+                             str(packet_list[i][TCP].sport),
+                             packet_list[i].OP.decode(),
+                             packet_list[i].OBJ.decode().replace('\r', ' ').replace('\n', ' '),
+                             str(round(time_used * 1000, 3))]
+                    logger.debug('add metrics entry.')
+                    g_write(entry)
+                    logger.debug(f'REQ time: {packet_list[i].time} BODY: {packet_list[i].getlayer("Redis").summary}')
+                    logger.debug(f'RSP time: {pkt.time} BODY: {pkt.getlayer("Redis").summary}')
+                    packet_list.pop(i)
+                    return
+        elif pkt[TCP].dport == 6379:
+            logger.debug('packet dport 6379, treat as REQ')
+            # we will clear the list then add new REQ packet, this mean only one packet will be in the list for now.
+            packet_list.clear()
+            packet_list.append(pkt)
+        else:
+            logger.info('not a redis packet since src port and dst port is not 6379')
 
-    if rcv_flow_key in g_flow:
-        packet_list = g_flow.get(rcv_flow_key)
-    elif snd_flow_key in g_flow:
-        packet_list = g_flow.get(snd_flow_key)
-    else:
-        logger.debug(f'new flow found: {snd_flow_key}')
-        g_flow[snd_flow_key] = [pkt]
-        return
+    def run(self) -> None:
 
-    if pkt[TCP].sport == 6379:
-        logger.debug('packet sport 6379, treat as RSP')
-        for i in range(len(packet_list) - 1, -1, -1):
-            if packet_list[i][TCP].sport != 6379:
-                time_used = pkt.time - packet_list[i].time
-                entry = [str(packet_list[i].time),
-                         str(packet_list[i][IP].src),
-                         str(packet_list[i][TCP].sport),
-                         packet_list[i].OP.decode(),
-                         packet_list[i].OBJ.decode().replace('\r', ' ').replace('\n', ' '),
-                         str(round(time_used * 1000, 3))]
-                logger.debug('add metrics entry.')
-                g_write(entry)
-                logger.debug(f'REQ time: {packet_list[i].time} BODY: {packet_list[i].getlayer("Redis").summary}')
-                logger.debug(f'RSP time: {pkt.time} BODY: {pkt.getlayer("Redis").summary}')
-                packet_list.pop(i)
-                return
-    elif pkt[TCP].dport == 6379:
-        logger.debug('packet dport 6379, treat as REQ')
-        # we will clear the list then add new REQ packet, this mean only one packet will be in the list for now.
-        packet_list.clear()
-        packet_list.append(pkt)
-    else:
-        logger.info('not a redis packet since src port and dst port is not 6379')
+        previous = time.time()
+        previous_pkt_count = g_packet_add_count
 
+        while self._running_flag:
+            now = time.time()
+            if now - previous >= 5:  # report statistics every 5 seconds.
+                debug_flag = self.parameters['debug']
+                self.report_statistics(debug=debug_flag)
+                if previous_pkt_count == g_packet_add_count:
+                    print('\nno packets been added to work queue. finish work.')
+                    logger.info('no packets been added to work queue. finish work.')
+                    break
 
-def worker() -> None:
-    global g_parameters
+                previous = now
 
-    previous = time.time()
-    previous_pkt_count = g_packet_add_count
-    while True:
-        now = time.time()
-        if now - previous >= 5:  # report statistics every 5 seconds.
-            debug_flag = g_parameters['debug']
-            report_statistics(debug=debug_flag)
-            if previous_pkt_count == g_packet_add_count:
-                print('\nno packets been added to work queue. finish work.')
-                logger.info('no packets been added to work queue. finish work.')
-                break
-            previous_pkt_count = g_packet_add_count
-            previous = now
+            size = len(g_queue)
+            if size == 0:
+                time.sleep(0.001)
+                continue
 
-        size = len(g_queue)
-        if size == 0:
-            time.sleep(0.001)
-            continue
+            _packet = g_queue.popleft()
+            try:
+                self.handler(_packet)
+            except Exception as e:
+                logger.info(f'exception in packet handler:{e} for {packet}')
 
-        packet = g_queue.popleft()
-        try:
-            handler(packet)
-        except Exception as e:
-            logger.info(f'exception in packet handler:{e} for {packet}')
+        print('worker thread complete')
 
-    print('worker thread complete')
+    def report_statistics(self, debug=False) -> None:
+        fstring = f'packets captured: {g_packet_add_count:8} packets analysis: {self._packet_remove_count:8} packets in queue: {len(g_queue):8}'
+        if debug is False:
+            print(fstring, end='\r', flush=True)
+            logger.info(fstring)
+            return
 
-
-def report_statistics(debug=False) -> None:
-    fstring = f'packets captured: {g_packet_add_count:8} packets analysis: {g_packet_remove_count:8} packets in queue: {len(g_queue):8}'
-    if debug is False:
-        print(fstring, end='\r', flush=True)
-        logger.info(fstring)
-        return
-
-    print(fstring)
-    snapshot = tracemalloc.take_snapshot()
-    top_stats = snapshot.statistics('lineno')
-    for stat in top_stats[:10]:
-        print(f'>>> memory usage: {stat}')
-        logger.debug(f'>>> memory usage: {stat}')
+        print(fstring)
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        for stat in top_stats[:10]:
+            print(f'>>> memory usage: {stat}')
+            logger.debug(f'>>> memory usage: {stat}')
 
 
 def distribute(pkt: Packet) -> None:
     global g_packet_add_count
+
     g_packet_add_count += 1
     g_queue.append(pkt)
     time.sleep(0.001)
     logger.debug(f'+++packet ben added to the queue: {g_packet_add_count}')
 
 
-def parse_command():
-    global g_parameters
+def parse_command()-> dict:
 
     parser = argparse.ArgumentParser()
 
@@ -241,55 +250,51 @@ def parse_command():
     parser.add_argument('--s3path', '-s3', default=None, help='the s3 path you want to upload file to.')
     args = parser.parse_args()
 
-    g_parameters['filter'] = args.filter
-    g_parameters['debug'] = args.debug
-    g_parameters['time'] = args.time
-    g_parameters['input_file'] = args.input_file
-    g_parameters['output_folder'] = args.output_folder
-    g_parameters['time'] = args.time
-    g_parameters['s3path'] = args.s3path
+    parameters = {}
+    parameters['filter'] = args.filter
+    parameters['debug'] = args.debug
+    parameters['time'] = args.time
+    parameters['input_file'] = args.input_file
+    parameters['output_folder'] = args.output_folder
+    parameters['time'] = args.time
+    parameters['s3path'] = args.s3path
 
-
-def producer(filter: str):
-    pass
+    return parameters
 
 
 def main():
-    global g_parameters
     global g_write
 
-    parse_command()
-    logger.info(f'input parameters: {g_parameters}')
+    parameters = parse_command()
+    logger.info(f'input parameters: {parameters}')
 
-    if g_parameters['debug'] is True:
+    if parameters['debug'] is True:
         tracemalloc.start()
 
-    g_write = output(g_parameters['output_folder'], size=10, s3path=g_parameters['s3path'])
+    g_write = output(parameters['output_folder'], size=10, s3path=parameters['s3path'])
 
     start = time.time()
     print(f'time start: {time.ctime()}')
 
-    # producer(g_parameters['filter'] + ' and port 6379')
-
-    thread = Thread(target=worker)
+    thread = Worker()
     thread.start()
 
-    if g_parameters['input_file'] is not None:
-        sniff(offline=g_parameters['input_file'],
-              filter=g_parameters['filter'] + ' and port 6379',
+    if parameters['input_file'] is not None:
+        sniff(offline=parameters['input_file'],
+              filter=parameters['filter'] + ' and port 6379',
               session=TCPSession,
               # count=5000,
               store=False,
               prn=distribute)
     else:
         sniff(iface='eth0',
-              filter=g_parameters['filter'] + ' and port 6379',
+              filter=parameters['filter'] + ' and port 6379',
               session=TCPSession,
               # count=5000,
               store=False,
               prn=distribute)
 
-    thread.join()
+    thread.stop()
 
     end = time.time() - start
     print(f'time now and cost: {time.time()} {end}')
