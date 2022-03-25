@@ -169,6 +169,8 @@ class Worker(Thread):
                              str(packet_list[i][TCP].sport),
                              packet_list[i].OP.decode(),
                              packet_list[i].OBJ.decode().replace('\r', ' ').replace('\n', ' '),
+                             len(packet_list[TCP].payload),
+                             len(pkt[TCP].payload),
                              str(round(time_used * 1000, 3))]
                     logger.debug('add metrics entry.')
                     g_write(entry)
