@@ -243,7 +243,7 @@ def distribute(pkt: Packet) -> None:
 
     g_packet_add_count += 1
     g_queue.append(pkt)
-    time.sleep(0.001)
+    # time.sleep(0.001)
     logger.debug(f'+++packet ben added to the queue: {g_packet_add_count}')
 
 
