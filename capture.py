@@ -20,7 +20,6 @@ class Writer(object):
         self.bucket = None
         self.folder = None
         self.max_size = max_size
-        self.buffer = []
         self.filename = 'unknown'
         self.s3path = s3path
         self.pkt_writer = None
@@ -72,27 +71,33 @@ class Writer(object):
             logger.error(f'unable to write to log file. {e}')
 
         if os.stat(self.filename).st_size >= self.max_size * 1024 * 1024:
+            self.pkt_writer.close()
             if self.s3path is not None:
                 ret = self.upload_file(self.client, self.filename, self.bucket,
                                        object_name=self.folder + os.path.basename(self.filename))
                 if ret is True:
                     logger.info(f'upload file {self.filename} to s3 successful.')
+                    os.remove(self.filename)
             self.filename = self.generate_filename(self.path)
             del self.pkt_writer
             self.pkt_writer = PcapWriter(self.filename, append=True)
 
     def close(self):
         try:
+            self.pkt_writer.close()
             if self.s3path is not None:
                 ret = self.upload_file(self.client, self.filename, self.bucket,
                                        object_name=self.folder + os.path.basename(self.filename))
                 if ret is True:
                     logger.info(f'upload file {self.filename} to s3 successful.')
+                    os.remove(self.filename)
+
         except Exception as e:
             logger.error(f'unable to write to log file. {e}')
 
 
-writer = Writer('.', 1)
+writer = Writer('.', 1, s3path='s3://derekworkspace/tmp/')
+
 
 def handler(pkt: Packet):
     writer.save(pkt)
@@ -103,13 +108,14 @@ def main():
         print(f'usage: {sys.argv[0]} <interface>.')
         sys.exit(1)
 
-    #dev = sys.argv[1]
+    dev = sys.argv[1]
     try:
-        ret = sniff(prn=handler)
-        # ret = sniff(iface=dev, filter='port 6379', prn=handler)
+        # ret = sniff(prn=handler)
+        ret = sniff(iface=dev, filter='port 6379', prn=handler)
     except KeyboardInterrupt as e:
         pass
 
+    writer.close()
     print('capture finished.')
 
 
