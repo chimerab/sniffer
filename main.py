@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 redis command time consumption calculator
 """

@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+
+
 from scapy.all import *
 import sys
 import logging
@@ -79,6 +82,8 @@ class Writer(object):
                     logger.info(f'upload file {self.filename} to s3 successful.')
                     os.remove(self.filename)
             self.filename = self.generate_filename(self.path)
+            print(f'output file: {self.filename}')
+            logger.info(self.filename)
             del self.pkt_writer
             self.pkt_writer = PcapWriter(self.filename, append=True)
 
@@ -96,7 +101,7 @@ class Writer(object):
             logger.error(f'unable to write to log file. {e}')
 
 
-writer = Writer('.', 1, s3path='s3://derekworkspace/tmp/')
+writer = None
 
 
 def handler(pkt: Packet):
@@ -104,15 +109,19 @@ def handler(pkt: Packet):
 
 
 def main():
-    if len(sys.argv) < 1:
+    global writer
+
+    if len(sys.argv) < 2:
         print(f'usage: {sys.argv[0]} <interface>.')
         sys.exit(1)
 
     dev = sys.argv[1]
+    s3path = sys.argv[2]
+    writer = Writer(path='.', max_size=1, s3path=s3path)
+
     try:
-        # ret = sniff(prn=handler)
-        ret = sniff(iface=dev, filter='port 6379', prn=handler)
-    except KeyboardInterrupt as e:
+        sniff(iface=dev, filter='port 6379', prn=handler)
+    except KeyboardInterrupt:
         pass
 
     writer.close()
