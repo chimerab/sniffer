@@ -112,7 +112,8 @@ def main():
     global writer
 
     if len(sys.argv) < 2:
-        print(f'usage: {sys.argv[0]} <interface>.')
+        print(f'usage: {sys.argv[0]} <interface> <s3path>\n'
+              f'Ex: script.py eth0 s3://bucket_name/folder/\n')
         sys.exit(1)
 
     dev = sys.argv[1]
