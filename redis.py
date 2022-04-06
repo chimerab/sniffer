@@ -45,7 +45,7 @@ class Redis(Packet):
             logger.info(f'decode exception:{e} for input data: {data}')
 
         # None mean content not complete, we need push back to queue.
-        if result is None or data.decode()[-2:] != '\r\n' or length != len(data):
+        if result is None or length != len(data):
             logger.debug(f'tcp reassemble not finished. data length: {len(data)}')
             return None
         else:
