@@ -24,8 +24,8 @@ python main.py
 
 In case you run script behind traffic mirror , make sure decode the vxlan first. the vxlan id must match with the traffic mirror setting.
 
->ip link add capture0 type vxlan id 12345 dev eth0 dstport 4789. 
->ip link set capture0 up  
+ip link add capture0 type vxlan id 12345 dev eth0 dstport 4789 
+ip link set capture0 up  
 
 ### Analyze the result
 
