@@ -19,7 +19,7 @@ deactivate
 sudo su -  
 cd sniffer  
 . venv/bin/activate  
-python capture.py eth0 s3path  
+python main.py  
 
 ### Analyze the result
 
