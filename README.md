@@ -31,7 +31,7 @@ ip link set capture0 up
 
 Athena table used to analysis the output 
 
-CREATE EXTERNAL TABLE `redis`( 
+CREATE EXTERNAL TABLE `redis`(   
   `time` string,  
   `src_ip` string,  
   `src_port` bigint,  
